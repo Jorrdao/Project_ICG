@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "three": "^0.174.0",
+    "three-addons": "^1.2.0",
+    "troika-three-text": "^0.52.3"
+  },
+  "devDependencies": {
+    "vite": "^6.2.2"
+  }
+}
