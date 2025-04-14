@@ -1,14 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<title>My first three.js app</title>
-		<style>
-			body { margin: 0; }
-		</style>
-	</head>
-	<body>
-		<script type="module" src="/main.js"></script>
-	</body>
-    <style link ="style.css"></style>
+<head>
+  <meta charset="UTF-8">
+  <title>Fishing Fun</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="homeScreen">
+    <h1>Fishing Fun</h1>
+    <button id="startButton">Start Fishing 🎣</button>
+  </div>
+
+  <!-- Bubbles animation -->
+  <script>
+    for (let i = 0; i < 25; i++) {
+      const bubble = document.createElement('div');
+      bubble.classList.add('bubble');
+      bubble.style.left = Math.random() * 100 + 'vw';
+      bubble.style.animationDuration = 5 + Math.random() * 5 + 's';
+      document.getElementById('homeScreen').appendChild(bubble);
+    }
+  </script>
+
+  <script type="module" src="main.js"></script>
+  <div id="cursor">+</div>
+
+</body>
 </html>
