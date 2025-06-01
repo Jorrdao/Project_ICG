@@ -2,8 +2,16 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import * as CANNON from 'cannon-es';
 
+
 let scene, camera, renderer, rod, bobber, fish = [], controls;
 let world, bobberBody, waterMesh;
+let isFishing = false;
+let fishCaught = false;
+let trembleInterval;
+let clickCount = 0;
+let clickGoal = 10;
+let startMinigameTimeout = null;
+let bobberConstraint = null;
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 const clock = new THREE.Clock();
@@ -18,10 +26,97 @@ window.addEventListener('DOMContentLoaded', () => {
   const startBtn = document.getElementById('startButton');
   startBtn.addEventListener('click', () => {
     document.getElementById('homeScreen').style.display = 'none';
+    document.getElementById('cursor').style.display = 'block';
+
     init();
     animate();
   });
 });
+
+// define terrain globals
+let terrainGeometry;
+const terrainSize = 300;
+const terrainSegments = 100;
+
+const fishTypes = [
+  { name: "Golden Carp", image: "/images/golden_carp.png", key: "Golden Carp" },
+  { name: "Silver Trout", image: "/images/silver_trout.png", key: "Silver Trout" },
+  { name: "Bluegill", image: "/images/bluegill.png", key: "Bluegill" }
+];
+
+const inventory = {
+  golden_carp: { image: "/images/golden_carp.png", quantity: 0 },
+  silver_trout: { image: "/images/silver_trout.png", quantity: 0 },
+  bluegill: { image: "/images/blue_gill.png", quantity: 0 }
+};
+
+
+let inventoryPopupVisible = false;
+
+function toggleInventoryPopup() {
+  if (inventoryPopupVisible) {
+    const popup = document.getElementById("inventoryPopup");
+    if (popup) popup.remove();
+    inventoryPopupVisible = false;
+    return;
+  }
+
+  const popup = document.createElement("div");
+  popup.id = "inventoryPopup";
+  popup.style.position = "absolute";
+  popup.style.top = "50%";
+  popup.style.left = "50%";
+  popup.style.transform = "translate(-50%, -50%)";
+  popup.style.width = "500px";
+  popup.style.maxHeight = "400px";
+  popup.style.overflowY = "auto";
+  popup.style.background = "rgba(0, 100, 200, 0.9)";
+  popup.style.border = "4px solid #fff";
+  popup.style.borderRadius = "12px";
+  popup.style.zIndex = 1001;
+  popup.style.display = "flex";
+  popup.style.flexDirection = "column";
+  popup.style.alignItems = "center";
+  popup.style.justifyContent = "flex-start";
+  popup.style.padding = "20px";
+  popup.style.fontFamily = "Arial, sans-serif";
+  popup.style.color = "#fff";
+
+  const title = document.createElement("h2");
+  title.innerText = "Inventory";
+  title.style.marginBottom = "20px";
+  popup.appendChild(title);
+
+  // Lista de itens
+  for (const itemName in inventory) {
+    const item = inventory[itemName];
+
+    const itemRow = document.createElement("div");
+    itemRow.style.display = "flex";
+    itemRow.style.alignItems = "center";
+    itemRow.style.gap = "15px";
+    itemRow.style.marginBottom = "15px";
+
+    const img = document.createElement("img");
+    img.src = item.image;
+    img.style.width = "50px";
+    img.style.height = "50px";
+    img.style.borderRadius = "8px";
+
+    const label = document.createElement("div");
+    label.innerText = `${itemName} x${item.quantity}`;
+    label.style.fontSize = "18px";
+
+    itemRow.appendChild(img);
+    itemRow.appendChild(label);
+    popup.appendChild(itemRow);
+  }
+
+  document.body.appendChild(popup);
+  inventoryPopupVisible = true;
+}
+
+
 
 function init() {
   scene = new THREE.Scene();
@@ -44,7 +139,6 @@ function init() {
   groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
   world.addBody(groundBody);
 
-  // 🕹️ Controls
   controls = new PointerLockControls(camera, document.body);
   scene.add(controls.getObject());
 
@@ -52,7 +146,6 @@ function init() {
     controls.lock();
   });
 
-  // 🔐 Limit vertical look
   const pitchObject = controls.getObject().children[0];
   const maxPitch = Math.PI / 2.8;
   const minPitch = -Math.PI / 4;
@@ -61,7 +154,6 @@ function init() {
     if (pitchObject.rotation.x < minPitch) pitchObject.rotation.x = minPitch;
   });
 
-  // 🌊 Water
   const waterGeometry = new THREE.PlaneGeometry(500, 500);
   const waterMaterial = new THREE.MeshStandardMaterial({
     color: 0x1e90ff,
@@ -74,30 +166,32 @@ function init() {
   waterMesh.rotation.x = -Math.PI / 2;
   scene.add(waterMesh);
 
-  // 🏝️ Island
-  const islandRadius = 100;
-  const islandHeight = 10;
-  const islandGeometry = new THREE.CylinderGeometry(islandRadius, islandRadius * 1.1, islandHeight, 64);
-  const islandMaterial = new THREE.MeshStandardMaterial({ color: 0xdeb887 });
-  const island = new THREE.Mesh(islandGeometry, islandMaterial);
-  island.position.set(0, islandHeight / 2, 0);
-  scene.add(island);
-
-  const islandShape = new CANNON.Box(new CANNON.Vec3(islandRadius, islandHeight / 2, islandRadius));
-  const islandBody = new CANNON.Body({
-    mass: 0,
-    shape: islandShape,
-    position: new CANNON.Vec3(0, islandHeight / 2, 0)
+  terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+  const terrainMaterial = new THREE.MeshStandardMaterial({
+    color: 0xdeb887,
+    flatShading: true
   });
-  world.addBody(islandBody);
 
-  // ☀️ Lighting
+  for (let i = 0; i < terrainGeometry.attributes.position.count; i++) {
+    const x = terrainGeometry.attributes.position.getX(i);
+    const y = terrainGeometry.attributes.position.getY(i);
+    const z = Math.sin(x * 0.05) * Math.cos(y * 0.05) * 4 + Math.random() * 1.2;
+    terrainGeometry.attributes.position.setZ(i, z);
+  }
+  terrainGeometry.computeVertexNormals();
+
+  const terrainMesh = new THREE.Mesh(terrainGeometry, terrainMaterial);
+  terrainMesh.rotation.x = -Math.PI / 2;
+  terrainMesh.receiveShadow = true;
+  scene.add(terrainMesh);
+
+  
+
   const light = new THREE.DirectionalLight(0xffffff, 1.5);
   light.position.set(50, 100, 50);
   scene.add(light);
   scene.add(new THREE.AmbientLight(0x404040, 0.6));
 
-  // 🎣 Rod - right-hand first-person
   const rodGeometry = new THREE.CylinderGeometry(0.05, 0.05, 3, 8);
   const rodMaterial = new THREE.MeshBasicMaterial({ color: 0x8b4513 });
   rod = new THREE.Mesh(rodGeometry, rodMaterial);
@@ -106,7 +200,6 @@ function init() {
   camera.add(rod);
   scene.add(camera);
 
-  // 🎞️ Reel handle
   const reelGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8);
   const reelMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
   const reel = new THREE.Mesh(reelGeometry, reelMaterial);
@@ -114,7 +207,6 @@ function init() {
   reel.position.set(1.2, -1.4, -2);
   camera.add(reel);
 
-  // 🧵 Fishing line (will be updated each frame)
   const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   const lineGeometry = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(), new THREE.Vector3()
@@ -122,23 +214,39 @@ function init() {
   fishingLine = new THREE.Line(lineGeometry, lineMaterial);
   scene.add(fishingLine);
 
-  // 🟥 Bobber
   const bobberShape = new CANNON.Sphere(0.3);
+  const rodTip = rod.position.clone().applyMatrix4(camera.matrixWorld);
   bobberBody = new CANNON.Body({
     mass: 1,
     shape: bobberShape,
-    position: new CANNON.Vec3(0, 5, -15)
+    position: new CANNON.Vec3(rodTip.x, rodTip.y - 0.2, rodTip.z)
   });
+
   world.addBody(bobberBody);
+
+  const fixedPoint = new CANNON.Body({ mass: 0 });
+  fixedPoint.position.copy(rodTip);
+  world.addBody(fixedPoint);
+
+  bobberConstraint = new CANNON.PointToPointConstraint(
+    bobberBody, new CANNON.Vec3(0, 0, 0),
+    fixedPoint, new CANNON.Vec3(0, -0.05, -1)
+  );
+  world.addConstraint(bobberConstraint);
+
+
+  bobberBody.linearDamping = 0.9;
+  bobberBody.angularDamping = 0.9;
+
+
 
   const bobberMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
   bobber = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), bobberMaterial);
   scene.add(bobber);
 
-  // 🐟 Fish
   for (let i = 0; i < 25; i++) {
     let x, z;
-    const minDistance = islandRadius + 10;
+    const minDistance = 60;
     do {
       x = Math.random() * 300 - 150;
       z = Math.random() * 300 - 150;
@@ -162,12 +270,67 @@ function init() {
       body: fishBody,
       wanderTarget: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize()
     });
-    
   }
+  
+  createInventoryIcon();
+  
+  window.addEventListener('contextmenu', e => e.preventDefault());
 
-  window.addEventListener('click', (event) => {
-      if (!controls.isLocked) return;
-    
+
+  window.addEventListener('mousedown', (event) => {
+    if (event.button === 2) { // Botão direito
+      console.log('[DEBUG] mousedown botão direito');
+  
+      if (isFishing) {
+        console.log('[DEBUG] Recolher bóia');
+  
+        // Cancela tremor e timeout
+        if (trembleInterval) {
+          clearInterval(trembleInterval);
+          trembleInterval = null;
+        }
+  
+        if (startMinigameTimeout) {
+          clearTimeout(startMinigameTimeout);
+          startMinigameTimeout = null;
+        }
+  
+        cancelMinigame();
+  
+        // Remove constraint anterior
+        if (bobberConstraint) {
+          world.removeConstraint(bobberConstraint);
+          bobberConstraint = null;
+        }
+  
+        // Reposiciona a bóia na ponta da cana
+        const rodTip = rod.position.clone().applyMatrix4(camera.matrixWorld);
+        const bobberPos = new THREE.Vector3(rodTip.x, rodTip.y - 0.2, rodTip.z);
+  
+        bobberBody.velocity.setZero();
+        bobberBody.angularVelocity.setZero();
+        bobberBody.position.set(bobberPos.x, bobberPos.y, bobberPos.z);
+  
+        // Cria constraint entre a bóia e um ponto fixo perto da ponta da cana
+        const fixedPoint = new CANNON.Body({ mass: 0 });
+        fixedPoint.position.copy(rodTip);
+        world.addBody(fixedPoint);
+  
+        bobberConstraint = new CANNON.PointToPointConstraint(
+          bobberBody, new CANNON.Vec3(0, 0, 0),
+          fixedPoint, new CANNON.Vec3(0, -0.05, -1)
+        );
+        world.addConstraint(bobberConstraint);
+  
+        createSplash(bobberPos);
+  
+        isFishing = false;
+        fishCaught = false;
+        clickCount = 0;
+      }
+    }
+  
+    if (event.button === 0 && controls.isLocked && !isFishing) { // Botão esquerdo
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
@@ -175,28 +338,66 @@ function init() {
       const intersects = raycaster.intersectObject(waterMesh);
     
       if (intersects.length > 0) {
-        const point = intersects[0].point;
+        const target = intersects[0].point;
+    
+        // Remove constraint anterior se existir
+        if (bobberConstraint) {
+          world.removeConstraint(bobberConstraint);
+          bobberConstraint = null;
+        }
+    
+        // Define ponto de origem na ponta da cana
+        const rodTip = rod.position.clone().applyMatrix4(camera.matrixWorld);
+    
+        // Reposiciona a bóia e zera sua velocidade
+        bobberBody.position.set(rodTip.x, rodTip.y - 0.2, rodTip.z);
         bobberBody.velocity.setZero();
         bobberBody.angularVelocity.setZero();
-        bobberBody.position.set(point.x, 5, point.z);
     
-        // 💦 Create splash when bobber hits the water
-        createSplash(point);
+        // Calcula a direção do lançamento
+        const direction = new THREE.Vector3().subVectors(target, rodTip).normalize();
+    
+        // Calcula a distância até o alvo para ajustar a força dinamicamente
+        const distance = rodTip.distanceTo(target);
+        const horizontalStrength = distance * 2.5; // força horizontal escalável
+        const verticalStrength = Math.min(Math.max(distance * 1.5, 4), 10); // vertical entre 4–10
+    
+        const impulse = new CANNON.Vec3(
+          direction.x * horizontalStrength,
+          verticalStrength,
+          direction.z * horizontalStrength
+        );
+    
+        bobberBody.applyImpulse(impulse, bobberBody.position);
+    
+        
+        isFishing = true;
       }
+    }
+    
   });
   
+  
+  
+  
+  
+  
+  
 
-  // 🕹️ Movement
   document.addEventListener('keydown', (event) => {
+    if (controls.isLocked === true) return;
     switch (event.code) {
       case 'KeyW': move.forward = true; break;
       case 'KeyS': move.backward = true; break;
       case 'KeyA': move.left = true; break;
       case 'KeyD': move.right = true; break;
+      case 'KeyE': toggleInventoryPopup(); break;
+
     }
   });
 
   document.addEventListener('keyup', (event) => {
+    if (controls.isLocked === true) return;
     switch (event.code) {
       case 'KeyW': move.forward = false; break;
       case 'KeyS': move.backward = false; break;
@@ -205,12 +406,13 @@ function init() {
     }
   });
 
-  // 🔄 Resize
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
+
+  
 }
 
 function createSplash(position) {
@@ -222,15 +424,12 @@ function createSplash(position) {
     opacity: 0.9,
     depthWrite: false
   });
-
   const splash = new THREE.Mesh(splashGeometry, splashMaterial);
   splash.rotation.x = -Math.PI / 2;
-  splash.position.set(position.x, 0.01, position.z); // just above the water surface
-  splash.renderOrder = 1; // ensure it renders on top
-
+  splash.position.set(position.x, 0.01, position.z);
+  splash.renderOrder = 1;
   scene.add(splash);
 
-  // Animate + fade
   let scale = 1;
   const splashInterval = setInterval(() => {
     scale += 0.1;
@@ -244,17 +443,417 @@ function createSplash(position) {
       splash.material.dispose();
     }
   }, 30);
+
+  
 }
+
+function cancelMinigame() {
+  const overlay = document.getElementById('fishMinigame');
+  if (overlay) overlay.remove();
+
+  if (trembleInterval) {
+    clearInterval(trembleInterval);
+    trembleInterval = null;
+  }
+
+  if (startMinigameTimeout) {
+    clearTimeout(startMinigameTimeout);
+    startMinigameTimeout = null;
+  }
+
+  isFishing = false;
+  fishCaught = false;
+  clickCount = 0;
+
+}
+
+
+function createInventoryIcon() {
+  const inventoryBox = document.createElement('div');
+  inventoryBox.id = 'inventoryIcon';
+  inventoryBox.style.position = 'absolute';
+  inventoryBox.style.top = '20px';
+  inventoryBox.style.right = '20px';
+  inventoryBox.style.width = '120px';
+  inventoryBox.style.height = '140px';
+  inventoryBox.style.background = 'rgba(0, 100, 200, 0.8)';
+  inventoryBox.style.border = '4px solid #fff';
+  inventoryBox.style.borderRadius = '12px';
+  inventoryBox.style.zIndex = 999;
+  inventoryBox.style.display = 'flex';
+  inventoryBox.style.flexDirection = 'column';
+  inventoryBox.style.alignItems = 'center';
+  inventoryBox.style.justifyContent = 'center';
+  inventoryBox.style.padding = '10px';
+  inventoryBox.style.fontFamily = 'Arial, sans-serif';
+  inventoryBox.style.color = '#fff';
+  inventoryBox.style.fontWeight = 'bold';
+  inventoryBox.style.fontSize = '14px';
+
+  // Imagem do inventário (substituir caminho conforme necessário)
+  const img = document.createElement('img');
+  img.src = '/images/book.png'; // Coloca o ícone que quiseres
+  img.style.width = '160px';
+  img.style.height = '160px';
+  img.style.objectFit = 'contain';
+  inventoryBox.appendChild(img);
+
+  // Texto "Inventory [E]"
+  const label = document.createElement('div');
+  label.innerText = 'Inventory [E]';
+  label.style.marginTop = '5px';
+  inventoryBox.appendChild(label);
+
+  document.body.appendChild(inventoryBox);
+}
+
+
+function startFishingAnimation() {
+  console.log('[DEBUG] Fishing animation started');
+  isFishing = true;
+  const maxTime = Math.random() * 5 + 5; // 5–10 seconds
+
+  // Tremor da bóia
+  trembleInterval = setInterval(() => {
+    const offset = (Math.random() - 0.5) * 0.2;
+    bobberBody.position.x += offset;
+    bobberBody.position.z += offset;
+  }, 100);
+
+  // Após tempo aleatório, inicia minijogo
+  startMinigameTimeout = setTimeout(() => {
+    clearInterval(trembleInterval);
+    trembleInterval = null;
+    startMinigameTimeout = null;
+    openFishingMinigamePopup();
+  }, maxTime * 1000);
+}
+
+function showFishPopup(fishName, fishImageUrl) {
+  const popup = document.createElement('div');
+  popup.id = 'fishCapturePopup';
+  popup.style.position = 'absolute';
+  popup.style.top = '20px';
+  popup.style.left = '20px';
+  popup.style.width = '240px';
+  popup.style.background = 'rgba(0, 100, 200, 0.8)';
+  popup.style.border = '4px solid #fff';
+  popup.style.borderRadius = '12px';
+  popup.style.zIndex = 1000;
+  popup.style.display = 'flex';
+  popup.style.flexDirection = 'row';
+  popup.style.alignItems = 'center';
+  popup.style.justifyContent = 'flex-start';
+  popup.style.padding = '10px';
+  popup.style.gap = '10px';
+  popup.style.color = 'white';
+  popup.style.fontSize = '1.1em';
+
+  const img = document.createElement('img');
+  img.src = fishImageUrl;
+  img.alt = fishName;
+  img.style.width = '50px';
+  img.style.height = '50px';
+  img.style.objectFit = 'contain';
+  img.style.borderRadius = '6px';
+
+  const name = document.createElement('div');
+  name.innerText = `Caught a ${fishName}!`;
+
+  popup.appendChild(img);
+  popup.appendChild(name);
+  document.body.appendChild(popup);
+
+  // Auto-remove after 3s
+  setTimeout(() => {
+    popup.remove();
+  }, 3000);
+}
+
+
+
+function openFishingMinigamePopup() {
+  if (document.getElementById('fishingPopup')) return;
+
+  // Desativa controles do jogo
+  controls.unlock();
+  document.removeEventListener('mousedown', onMouseDownGame, true);
+  document.removeEventListener('keydown', onKeyDownGame, true);
+
+  // Cria overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'fishingPopup';
+  overlay.style.position = 'absolute';
+  overlay.style.top = '50%';
+  overlay.style.left = '50%';
+  overlay.style.transform = 'translate(-50%, -50%)';
+  overlay.style.width = '300px';
+  overlay.style.height = '300px';
+  overlay.style.background = 'rgba(0, 100, 200, 0.8)';
+  overlay.style.border = '4px solid #fff';
+  overlay.style.borderRadius = '12px';
+  overlay.style.zIndex = 1000;
+  overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.padding = '10px';
+  document.body.appendChild(overlay);
+
+  // Canvas para renderização do minijogo
+  const canvas = document.createElement('canvas');
+  canvas.width = 280;
+  canvas.height = 220;
+  overlay.appendChild(canvas);
+
+  // Botão de acerto
+  const btn = document.createElement('button');
+  btn.innerText = 'PESCA!';
+  btn.style.marginTop = '10px';
+  btn.style.padding = '10px 20px';
+  btn.style.fontSize = '1.2em';
+  btn.style.cursor = 'pointer';
+  btn.style.border = 'none';
+  btn.style.backgroundColor = '#28a745';
+  btn.style.color = '#fff';
+  btn.style.borderRadius = '5px';
+  overlay.appendChild(btn);
+
+  // Setup Three.js minigame interno
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-1.5, 1.5, 1.5, -1.5, 0.1, 10);
+  camera.position.z = 5;
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+  renderer.setSize(canvas.width, canvas.height);
+
+  // Círculo externo
+  const circleGeom = new THREE.RingGeometry(0.9, 1, 64);
+  const circleMat = new THREE.MeshBasicMaterial({ color: 0x87ceeb });
+  const circle = new THREE.Mesh(circleGeom, circleMat);
+  scene.add(circle);
+
+  // Zona de acerto vermelha
+  const innerRadius = 0.7;
+  const outerRadius = 1;
+  const startAngle = Math.PI / 6;
+  const endAngle = Math.PI / 3;
+
+  const arcShape = new THREE.Shape();
+  arcShape.absarc(0, 0, outerRadius, startAngle, endAngle, false);
+
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, innerRadius, endAngle, startAngle, true);
+  arcShape.holes.push(hole);
+
+  const arcGeom = new THREE.ShapeGeometry(arcShape);
+  const arcMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, opacity: 1 });
+  const arc = new THREE.Mesh(arcGeom, arcMat);
+  scene.add(arc);
+
+  // Linha giratória
+  const lineGeom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 1, 0)
+  ]);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+  const rotatingLine = new THREE.Line(lineGeom, lineMat);
+  scene.add(rotatingLine);
+
+  let angle = 0;
+  let success = false;
+
+  function animateMinigame() {
+    angle += 0.05;
+    const x = Math.sin(angle);
+    const y = Math.cos(angle);
+    rotatingLine.geometry.setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(x, y, 0)
+    ]);
+    renderer.render(scene, camera);
+    if (!success) requestAnimationFrame(animateMinigame);
+  }
+
+  animateMinigame();
+
+  btn.onclick = () => {
+    const currentAngle = angle % (2 * Math.PI);
+    const inTarget = currentAngle >= Math.PI / 6 && currentAngle <= Math.PI / 3;
+  
+    success = true;
+  
+    // Fecha popup
+    document.body.removeChild(overlay);
+  
+    // Recolhe a bóia primeiro
+    recallBobber();
+  
+    // Mostra popup e adiciona ao inventário, se necessário
+    if (inTarget) {
+      fishCaught = true;
+      const caught = fishTypes[Math.floor(Math.random() * fishTypes.length)];
+      showSuccessStar(bobberBody.position.clone());
+      showFishPopup(caught.name, caught.image);
+      inventory[caught.key].quantity++;
+    }
+  
+    // Reativa controlos
+    unblockGameControls();
+    setTimeout(() => {
+      controls.lock();
+    }, 100);
+  };
+  
+  
+  
+  
+}
+
+// Recolhe a boia para a cana
+function recallBobber() {
+  if (bobberConstraint) {
+    world.removeConstraint(bobberConstraint);
+    bobberConstraint = null;
+  }
+
+  if (trembleInterval) {
+    clearInterval(trembleInterval);
+    trembleInterval = null;
+  }
+
+  if (startMinigameTimeout) {
+    clearTimeout(startMinigameTimeout);
+    startMinigameTimeout = null;
+  }
+
+  // Reposiciona a bóia
+  const rodTip = rod.position.clone().applyMatrix4(camera.matrixWorld);
+  bobberBody.velocity.setZero();
+  bobberBody.angularVelocity.setZero();
+  bobberBody.position.set(rodTip.x, rodTip.y - 0.2, rodTip.z);
+
+  // Cria o novo ponto fixo
+  const fixedPoint = new CANNON.Body({ mass: 0 });
+  fixedPoint.position.copy(rodTip);
+  world.addBody(fixedPoint);
+
+  bobberConstraint = new CANNON.PointToPointConstraint(
+    bobberBody, new CANNON.Vec3(0, 0, 0),
+    fixedPoint, new CANNON.Vec3(0, -0.05, -1)
+  );
+  world.addConstraint(bobberConstraint);
+
+  // Flags
+  isFishing = false;
+  fishCaught = false;
+  clickCount = 0;
+
+  console.log("[DEBUG] recallBobber done");
+}
+
+
+
+
+
+
+// Reativa controles de jogo
+function reenableControls() {
+  document.addEventListener('mousedown', onMouseDownGame, true);
+  document.addEventListener('keydown', onKeyDownGame, true);
+  controls.lock();
+}
+
+// Estas funções devem existir no teu código principal
+function onMouseDownGame(e) {
+  e.stopPropagation();
+  e.preventDefault();
+}
+function onKeyDownGame(e) {
+  e.stopPropagation();
+  e.preventDefault();
+}
+
+
+function showSuccessStar(position) {
+  const starShape = new THREE.Shape();
+  const spikes = 5, outerRadius = 0.3, innerRadius = 0.15;
+  for (let i = 0; i < 2 * spikes; i++) {
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const angle = (i / spikes) * Math.PI;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) starShape.moveTo(x, y);
+    else starShape.lineTo(x, y);
+  }
+  starShape.closePath();
+
+  const geometry = new THREE.ShapeGeometry(starShape);
+  const material = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true });
+  const star = new THREE.Mesh(geometry, material);
+  star.position.set(position.x, position.y + 0.5, position.z);
+  star.rotation.x = -Math.PI / 2;
+  scene.add(star);
+
+  let opacity = 1;
+  let rise = 0;
+
+  const interval = setInterval(() => {
+    opacity -= 0.05;
+    rise += 0.01;
+    star.material.opacity = opacity;
+    star.position.y += 0.01;
+    if (opacity <= 0) {
+      clearInterval(interval);
+      scene.remove(star);
+      geometry.dispose();
+      material.dispose();
+    }
+  }, 30);function showSuccessStar(position) {
+    const starShape = new THREE.Shape();
+    const spikes = 5, outerRadius = 0.3, innerRadius = 0.15;
+    for (let i = 0; i < 2 * spikes; i++) {
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const angle = (i / spikes) * Math.PI;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) starShape.moveTo(x, y);
+      else starShape.lineTo(x, y);
+    }
+    starShape.closePath();
+  
+    const geometry = new THREE.ShapeGeometry(starShape);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true });
+    const star = new THREE.Mesh(geometry, material);
+    star.position.set(position.x, position.y + 0.5, position.z);
+    star.rotation.x = -Math.PI / 2;
+    scene.add(star);
+  
+    let opacity = 1;
+    let rise = 0;
+  
+    const interval = setInterval(() => {
+      opacity -= 0.05;
+      rise += 0.01;
+      star.material.opacity = opacity;
+      star.position.y += 0.01;
+      if (opacity <= 0) {
+        clearInterval(interval);
+        scene.remove(star);
+        geometry.dispose();
+        material.dispose();
+      }
+    }, 30);
+  }
+}
+
 
 
 
 function animate() {
   requestAnimationFrame(animate);
   world.step(1 / 60);
-
   const delta = clock.getDelta();
 
-  // 🧭 First-person movement (camera-relative)
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
 
@@ -263,76 +862,84 @@ function animate() {
   direction.normalize();
 
   const front = new THREE.Vector3();
-  controls.getDirection(front); // Camera forward
+  controls.getDirection(front);
+  const side = new THREE.Vector3().crossVectors(front, camera.up).normalize();
 
-  const side = new THREE.Vector3().crossVectors(camera.up, front).normalize();
 
-  if (move.forward || move.backward) {
-    velocity.addScaledVector(front, direction.z * 400.0 * delta);
-  }
-  if (move.left || move.right) {
-    velocity.addScaledVector(side, direction.x * 400.0 * delta);
-  }
+  if (move.forward || move.backward) velocity.addScaledVector(front, direction.z * 400.0 * delta);
+  if (move.left || move.right) velocity.addScaledVector(side, direction.x * 400.0 * delta);
 
   const player = controls.getObject();
   player.position.addScaledVector(velocity, delta);
-  player.position.y = 15; // 👈 Your camera "eye level"
+  player.position.y = 15;
 
-
-  // ⛔ Clamp player to island radius
-  const maxRadius = 95;
+  const maxRadius = 140;
   const dist = Math.sqrt(player.position.x ** 2 + player.position.z ** 2);
   if (dist > maxRadius) {
     const angle = Math.atan2(player.position.z, player.position.x);
     player.position.x = Math.cos(angle) * maxRadius;
     player.position.z = Math.sin(angle) * maxRadius;
-    velocity.set(0, 0, 0); // stop movement when clamped
+    velocity.set(0, 0, 0);
   }
 
-  // 🧵 Update fishing line
-  // Get rod tip in world coordinates
   const rodTip = rod.position.clone();
-  rodTip.applyMatrix4(camera.matrixWorld); // transforms from local to world space
+  rodTip.applyMatrix4(camera.matrixWorld);
 
   fishingLine.geometry.setFromPoints([rodTip, bobber.position]);
 
 
-  // Bobber sync
+
   bobber.position.copy(bobberBody.position);
   bobber.quaternion.copy(bobberBody.quaternion);
 
-  // 🐟 Fish movement
+  // Verifica se a bóia atingiu a superfície da água e ainda não iniciou a pesca
+  if (isFishing && !trembleInterval && !startMinigameTimeout) {
+    const waterLevel = 0.5;
+    const bobberRadius = 0.3;
+    if (bobber.position.y <= waterLevel + bobberRadius * 0.5) {
+      createSplash(bobber.position);
+      startFishingAnimation();
+    }
+  }
+  
+
+
+  // Fish movement restricted to water
   fish.forEach(f => {
-    // Gradually swim toward their current target direction
-    const force = f.wanderTarget.clone().multiplyScalar(0.1);
-    f.body.velocity.x += force.x;
-    f.body.velocity.z += force.z;
-  
-    // Clamp speed
-    f.body.velocity.x = THREE.MathUtils.clamp(f.body.velocity.x, -1, 1);
-    f.body.velocity.z = THREE.MathUtils.clamp(f.body.velocity.z, -1, 1);
-  
-    // Occasionally pick a new random direction
-    if (Math.random() < 0.01) {
-      f.wanderTarget.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-    }
-  
-    // Keep fish inside bounds
-    const maxFishDist = 230;
     const pos = f.body.position;
-    const distFromCenter = Math.sqrt(pos.x ** 2 + pos.z ** 2);
-    if (distFromCenter > maxFishDist) {
+    const xIndex = Math.floor((pos.x + terrainSize / 2) / (terrainSize / terrainSegments));
+    const zIndex = Math.floor((pos.z + terrainSize / 2) / (terrainSize / terrainSegments));
+    const index = zIndex * (terrainSegments + 1) + xIndex;
+    const yTerrain = terrainGeometry.attributes.position.getZ(index);
+
+    if (yTerrain <= 0.5) {
+      const force = f.wanderTarget.clone().multiplyScalar(0.1);
+      f.body.velocity.x += force.x;
+      f.body.velocity.z += force.z;
+
+      f.body.velocity.x = THREE.MathUtils.clamp(f.body.velocity.x, -1, 1);
+      f.body.velocity.z = THREE.MathUtils.clamp(f.body.velocity.z, -1, 1);
+
+      if (Math.random() < 0.01) {
+        f.wanderTarget.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+      }
+    } else {
       const angle = Math.atan2(pos.z, pos.x);
-      f.body.velocity.x = -Math.cos(angle) * 0.8;
-      f.body.velocity.z = -Math.sin(angle) * 0.8;
+      f.body.velocity.x = -Math.cos(angle) * 0.5;
+      f.body.velocity.z = -Math.sin(angle) * 0.5;
     }
-  
+
     f.mesh.position.copy(pos);
     f.mesh.quaternion.copy(f.body.quaternion);
   });
+
+  if (bobberConstraint && bobberConstraint.bodyB) {
+    const rodTip = rod.position.clone();
+    rodTip.applyMatrix4(camera.matrixWorld);
+    bobberConstraint.bodyB.position.set(rodTip.x, rodTip.y, rodTip.z);
+  }
+  
   
 
   renderer.render(scene, camera);
 }
-
-

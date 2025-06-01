@@ -67,9 +67,27 @@ html, body {
   cursor: pointer;
   box-shadow: 0 5px 15px rgba(0,0,0,0.3);
   transition: all 0.3s ease;
+  margin: 10px;
 }
 
 #startButton:hover {
+  transform: scale(1.1);
+  background-color: #ff4500;
+}
+
+#helpButton {
+  font-size: 2em;
+  padding: 15px 30px;
+  border: none;
+  background-color: #ff6347;
+  color: white;
+  border-radius: 15px;
+  cursor: pointer;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  transition: all 0.3s ease;
+}
+
+#helpButton:hover {
   transform: scale(1.1);
   background-color: #ff4500;
 }
@@ -85,16 +103,20 @@ html, body {
 }
 
 #cursor {
-  position: fixed;
+  position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 24px;
   color: white;
-  pointer-events: none;
-  user-select: none;
-  z-index: 10;
+  z-index: 999;
+  display: none; /* <- IMPORTANTE */
 }
+
+#fishMinigame {
+  transition: all 0.3s ease;
+}
+
 
 
 @keyframes rise {

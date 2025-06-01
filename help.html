@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Help - Fishing Fun</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="homeScreen">
+    <h1>How to Play</h1>
+    
+    <div style="max-width: 600px; text-align: left; background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; color: white; font-size: 18px; font-family: Arial, sans-serif;">
+      <h2 style="font-size: 24px;">Controls</h2>
+      <ul>
+        <li><strong>[W][A][S][D]</strong>: Move your character</li>
+        <li><strong>Mouse</strong>: Look around</li>
+        <li><strong>Left click</strong>: Cast the bobber into the water</li>
+        <li><strong>Right click</strong>: Reel the bobber back</li>
+        <li><strong>[E]</strong>: Open/Close inventory</li>
+      </ul>
+
+      <h2 style="font-size: 24px;">How It Works</h2>
+      <ul>
+        <li>Cast your bobber into the water</li>
+        <li>Wait for it to tremble after a few seconds</li>
+        <li>A minigame will appear — click the button at the right time to catch the fish</li>
+        <li>Caught fish will be stored in your inventory!</li>
+      </ul>
+    </div>
+
+    <button onclick="window.location.href='index.html'" style="margin-top: 20px;" id="helpButton">Back to Menu</button>
+  </div>
+
+  <script>
+    for (let i = 0; i < 25; i++) {
+      const bubble = document.createElement('div');
+      bubble.classList.add('bubble');
+      bubble.style.left = Math.random() * 100 + 'vw';
+      bubble.style.animationDuration = 5 + Math.random() * 5 + 's';
+      document.getElementById('homeScreen').appendChild(bubble);
+    }
+  </script>
+</body>
+</html>

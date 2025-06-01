@@ -16,8 +16,9 @@
 </head>
 <body>
   <div id="homeScreen">
-    <h1>Fishing Fun</h1>
-    <button id="startButton">Start Fishing 🎣</button>
+    <h1>Reel it in</h1>
+    <button id="startButton">Start Fishing</button>
+    <button id="helpButton">Help</button>
   </div>
 
   <!-- Bubbles animation -->
@@ -29,10 +30,18 @@
       bubble.style.animationDuration = 5 + Math.random() * 5 + 's';
       document.getElementById('homeScreen').appendChild(bubble);
     }
+
+    // Redirecionar para a página de ajuda
+    document.getElementById('helpButton').addEventListener('click', () => {
+      window.location.href = 'help.html';
+    });
+
+    document.getElementById('startButton').addEventListener('click', () => {
+      document.getElementById('homeScreen').style.display = 'none';
+    });
   </script>
 
   <script type="module" src="main.js"></script>
   <div id="cursor">+</div>
-
 </body>
 </html>
