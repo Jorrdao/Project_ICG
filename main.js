@@ -39,15 +39,18 @@ const terrainSize = 300;
 const terrainSegments = 100;
 
 const fishTypes = [
-  { name: "Golden Carp", image: "/images/golden_carp.png", key: "Golden Carp" },
-  { name: "Silver Trout", image: "/images/silver_trout.png", key: "Silver Trout" },
-  { name: "Bluegill", image: "/images/bluegill.png", key: "Bluegill" }
+  { name: "Golden Carp", image: "/images/golden_carp.png", key: "golden_carp" },
+  { name: "Silver Trout", image: "/images/silver_trout.png", key: "silver_trout" },
+  { name: "Bluegill", image: "/images/blue_gill.png", key: "bluegill" },
+  { name: "Old Boot", image: "/images/boot.png", key: "old_boot" },
 ];
 
+
 const inventory = {
-  golden_carp: { image: "/images/golden_carp.png", quantity: 0 },
-  silver_trout: { image: "/images/silver_trout.png", quantity: 0 },
-  bluegill: { image: "/images/blue_gill.png", quantity: 0 }
+  golden_carp: { image: "/images/golden_carp.png", quantity: 0, name: "Golden Carp" },
+  silver_trout: { image: "/images/silver_trout.png", quantity: 0 , name: "Silver Trout" },
+  bluegill: { image: "/images/blue_gill.png", quantity: 0, name: "Bluegill" },
+  old_boot: { image: "/images/boot.png", quantity: 0, name: "Old Boot" }
 };
 
 
@@ -104,7 +107,7 @@ function toggleInventoryPopup() {
     img.style.borderRadius = "8px";
 
     const label = document.createElement("div");
-    label.innerText = `${itemName} x${item.quantity}`;
+    label.innerText = `${item.name} x${item.quantity}`;
     label.style.fontSize = "18px";
 
     itemRow.appendChild(img);
@@ -385,7 +388,7 @@ function init() {
   
 
   document.addEventListener('keydown', (event) => {
-    if (controls.isLocked === true) return;
+    if (controls.isLocked === false) return;
     switch (event.code) {
       case 'KeyW': move.forward = true; break;
       case 'KeyS': move.backward = true; break;
@@ -397,7 +400,7 @@ function init() {
   });
 
   document.addEventListener('keyup', (event) => {
-    if (controls.isLocked === true) return;
+    if (controls.isLocked === false) return;
     switch (event.code) {
       case 'KeyW': move.forward = false; break;
       case 'KeyS': move.backward = false; break;
@@ -446,6 +449,22 @@ function createSplash(position) {
 
   
 }
+
+function getRodTipPosition() {
+  // Base da cana (ligada à câmara)
+  const rodBase = new THREE.Vector3();
+  rod.getWorldPosition(rodBase);
+
+  // Direção para onde a câmara está virada
+  const direction = new THREE.Vector3();
+  camera.getWorldDirection(direction);
+  direction.normalize();
+
+  // 20cm (0.2 unidades) à frente da ponta da cana
+  const rodTipOffset = direction.clone().multiplyScalar(0.2);
+  return rodBase.add(rodTipOffset);
+}
+
 
 function cancelMinigame() {
   const overlay = document.getElementById('fishMinigame');
@@ -528,6 +547,44 @@ function startFishingAnimation() {
     openFishingMinigamePopup();
   }, maxTime * 1000);
 }
+
+function spawnFishShadow(position) {
+  const geometry = new THREE.CircleGeometry(0.5, 32);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    opacity: 0.3,
+    transparent: true
+  });
+
+  const shadow = new THREE.Mesh(geometry, material);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.set(position.x, 0.01, position.z); // ligeiramente acima do plano da água
+
+  scene.add(shadow);
+
+  let angle = 0;
+
+  const animateShadow = () => {
+    if (!scene.getObjectById(shadow.id)) return; // shadow removido
+
+    angle += 0.05;
+    const radius = 0.3;
+    shadow.position.x = position.x + Math.cos(angle) * radius;
+    shadow.position.z = position.z + Math.sin(angle) * radius;
+
+    requestAnimationFrame(animateShadow);
+  };
+
+  animateShadow();
+
+  // Remove após X segundos (ex: 8s)
+  setTimeout(() => {
+    scene.remove(shadow);
+    shadow.geometry.dispose();
+    shadow.material.dispose();
+  }, 8000);
+}
+
 
 function showFishPopup(fishName, fishImageUrl) {
   const popup = document.createElement('div');
@@ -727,14 +784,15 @@ function recallBobber() {
   }
 
   // Reposiciona a bóia
-  const rodTip = rod.position.clone().applyMatrix4(camera.matrixWorld);
+  const rodTip = getRodTipPosition();
   bobberBody.velocity.setZero();
   bobberBody.angularVelocity.setZero();
-  bobberBody.position.set(rodTip.x, rodTip.y - 0.2, rodTip.z);
+  bobberBody.position.set(rodTip.x, rodTip.y, rodTip.z);
 
   // Cria o novo ponto fixo
   const fixedPoint = new CANNON.Body({ mass: 0 });
   fixedPoint.position.copy(rodTip);
+
   world.addBody(fixedPoint);
 
   bobberConstraint = new CANNON.PointToPointConstraint(
@@ -749,18 +807,6 @@ function recallBobber() {
   clickCount = 0;
 
   console.log("[DEBUG] recallBobber done");
-}
-
-
-
-
-
-
-// Reativa controles de jogo
-function reenableControls() {
-  document.addEventListener('mousedown', onMouseDownGame, true);
-  document.addEventListener('keydown', onKeyDownGame, true);
-  controls.lock();
 }
 
 // Estas funções devem existir no teu código principal
@@ -898,6 +944,7 @@ function animate() {
     const bobberRadius = 0.3;
     if (bobber.position.y <= waterLevel + bobberRadius * 0.5) {
       createSplash(bobber.position);
+      spawnFishShadow(bobber.position);
       startFishingAnimation();
     }
   }
