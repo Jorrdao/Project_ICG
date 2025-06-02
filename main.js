@@ -395,6 +395,7 @@ function init() {
       case 'KeyA': move.left = true; break;
       case 'KeyD': move.right = true; break;
       case 'KeyE': toggleInventoryPopup(); break;
+      case 'KeyR': togglePausePopup(); break;
 
     }
   });
@@ -989,4 +990,86 @@ function animate() {
   
 
   renderer.render(scene, camera);
+}
+
+let pausePopupVisible = false;
+
+function togglePausePopup() {
+  if (pausePopupVisible) {
+    const popup = document.getElementById('pausePopup');
+    if (popup) popup.remove();
+
+    pausePopupVisible = false;
+
+    // Ocultar cursor e bloquear controlos
+    document.body.style.cursor = 'none';
+    setTimeout(() => controls.lock(), 100);
+
+    return;
+  }
+
+  pausePopupVisible = true;
+
+  // Mostrar cursor e desbloquear controlos
+  controls.unlock();
+  document.body.style.cursor = 'default';
+
+  const popup = document.createElement('div');
+  popup.id = 'pausePopup';
+  popup.style.position = 'absolute';
+  popup.style.top = '50%';
+  popup.style.left = '50%';
+  popup.style.transform = 'translate(-50%, -50%)';
+  popup.style.width = '300px';
+  popup.style.height = '220px';
+  popup.style.background = 'rgba(0, 100, 200, 0.8)';
+  popup.style.border = '4px solid #fff';
+  popup.style.borderRadius = '12px';
+  popup.style.zIndex = 2000;
+  popup.style.display = 'flex';
+  popup.style.flexDirection = 'column';
+  popup.style.alignItems = 'center';
+  popup.style.justifyContent = 'center';
+  popup.style.padding = '20px';
+  popup.style.fontFamily = 'Arial, sans-serif';
+  popup.style.color = '#fff';
+
+  const title = document.createElement('h2');
+  title.innerText = 'Game Paused';
+  title.style.marginBottom = '20px';
+  popup.appendChild(title);
+
+  const resumeBtn = document.createElement('button');
+  resumeBtn.innerText = 'Resume';
+  resumeBtn.style.padding = '10px 20px';
+  resumeBtn.style.fontSize = '16px';
+  resumeBtn.style.marginBottom = '10px';
+  resumeBtn.style.cursor = 'pointer';
+  resumeBtn.style.border = 'none';
+  resumeBtn.style.backgroundColor = '#28a745';
+  resumeBtn.style.color = '#fff';
+  resumeBtn.style.borderRadius = '5px';
+  resumeBtn.onclick = () => {
+    popup.remove();
+    pausePopupVisible = false;
+    document.body.style.cursor = 'none';
+    setTimeout(() => controls.lock(), 100);
+  };
+  popup.appendChild(resumeBtn);
+
+  const exitBtn = document.createElement('button');
+  exitBtn.innerText = 'Exit to Menu';
+  exitBtn.style.padding = '10px 20px';
+  exitBtn.style.fontSize = '16px';
+  exitBtn.style.cursor = 'pointer';
+  exitBtn.style.border = 'none';
+  exitBtn.style.backgroundColor = '#dc3545';
+  exitBtn.style.color = '#fff';
+  exitBtn.style.borderRadius = '5px';
+  exitBtn.onclick = () => {
+    window.location.href = 'index.html';
+  };
+  popup.appendChild(exitBtn);
+
+  document.body.appendChild(popup);
 }
