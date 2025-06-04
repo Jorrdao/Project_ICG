@@ -39,18 +39,17 @@ const terrainSize = 300;
 const terrainSegments = 100;
 
 const fishTypes = [
-  { name: "Golden Carp", image: "./images/golden_carp.png", key: "golden_carp" },
-  { name: "Silver Trout", image: "./images/silver_trout.png", key: "silver_trout" },
-  { name: "Bluegill", image: "./images/blue_gill.png", key: "bluegill" },
-  { name: "Old Boot", image: "./images/boot.png", key: "old_boot" },
+  { name: "Golden Carp", image: "images/golden_carp.png", key: "golden_carp" },
+  { name: "Silver Trout", image: "images/silver_trout.png", key: "silver_trout" },
+  { name: "Bluegill", image: "images/blue_gill.png", key: "bluegill" },
+  { name: "Old Boot", image: "images/boot.png", key: "old_boot" },
 ];
 
-
 const inventory = {
-  golden_carp: { image: "./images/golden_carp.png", quantity: 0, name: "Golden Carp" },
-  silver_trout: { image: "./images/silver_trout.png", quantity: 0 , name: "Silver Trout" },
-  bluegill: { image: "./images/blue_gill.png", quantity: 0, name: "Bluegill" },
-  old_boot: { image: "./images/boot.png", quantity: 0, name: "Old Boot" }
+  golden_carp: { image: "images/golden_carp.png", quantity: 0, name: "Golden Carp" },
+  silver_trout: { image: "images/silver_trout.png", quantity: 0 , name: "Silver Trout" },
+  bluegill: { image: "images/blue_gill.png", quantity: 0, name: "Bluegill" },
+  old_boot: { image: "images/boot.png", quantity: 0, name: "Old Boot" }
 };
 
 
@@ -512,7 +511,7 @@ function createInventoryIcon() {
 
   // Imagem do inventário (substituir caminho conforme necessário)
   const img = document.createElement('img');
-  img.src = './images/book.png'; // Coloca o ícone que quiseres
+  img.src = '/images/book.png'; // Coloca o ícone que quiseres
   img.style.width = '160px';
   img.style.height = '160px';
   img.style.objectFit = 'contain';
